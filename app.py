@@ -363,7 +363,7 @@ def handle_end_call(data):
 # START SERVER
 # ==========================
 
-# Create the database tables when the app starts
+# Initialize database when the application starts
 init_db()
 
 
