@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Chat - For Her</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>For Her</h1>
+
+        <h2>Chat with {{ other_user }}</h2>
+
+        <!-- CHAT BOX -->
+
+        <div id="chatBox" class="chat-box">
+
+            {% if messages %}
+
+                {% for sender, receiver, message in messages %}
+
+                    <div class="message-wrapper
+                        {% if sender == session['personal_id'] %}
+                            sent
+                        {% else %}
+                            received
+                        {% endif %}
+                    ">
+
+                        <div class="message">
+
+                            <strong>
+                                {% if sender == session['personal_id'] %}
+                                    You
+                                {% else %}
+                                    {{ sender }}
+                                {% endif %}
+                            </strong>
+
+                            <span>
+                                {{ message }}
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                {% endfor %}
+
+            {% else %}
+
+                <p id="noMessages">
+                    No messages yet.
+                </p>
+
+            {% endif %}
+
+        </div>
+
+
+        <!-- MESSAGE FORM -->
+
+        <form id="messageForm">
+
+            <input
+                id="messageInput"
+                type="text"
+                placeholder="Type a message..."
+                autocomplete="off"
+                required
+            >
+
+            <button type="submit">
+                Send
+            </button>
+
+        </form>
+
+
+        <br>
+
+
+        <!-- CALL BUTTONS -->
+
+        <button type="button" onclick="startCall()">
+            📞 Call
+        </button>
+
+        <button type="button" onclick="endCall()">
+            ❌ End Call
+        </button>
+
+
+        <br><br>
+
+
+        <!-- CALL STATUS -->
+
+        <p id="callStatus">
+            Not in a call
+        </p>
+
+
+        <!-- REMOTE AUDIO -->
+
+        <audio id="remoteAudio" autoplay></audio>
+
+
+        <br>
+
+
+        <!-- BACK BUTTON -->
+
+        <a href="/dashboard">
+
+            <button type="button">
+                ← Back
+            </button>
+
+        </a>
+
+    </div>
+
+
+    <script>
+
+        // ==========================================
+        // SOCKET.IO
+        // ==========================================
+
+        const socket = io({
+            transports: ["polling"]
+        });
+
+
+        const currentUser =
+            "{{ session['personal_id'] }}";
+
+        const otherUser =
+            "{{ other_user }}";
+
+
+        // ==========================================
+        // WEBRTC VARIABLES
+        // ==========================================
+
+        let peerConnection = null;
+
+        let localStream = null;
+
+        let pendingCandidates = [];
+
+
+        // ==========================================
+        // JOIN CHAT
+        // ==========================================
+
+        socket.on("connect", function () {
+
+            console.log(
+                "Socket connected:",
+                socket.id
+            );
+
+            socket.emit(
+                "join_chat",
+                {
+                    other_user: otherUser
+                }
+            );
+
+            console.log(
+                "Joined chat with:",
+                otherUser
+            );
+
+        });
+
+
+        // ==========================================
+        // SOCKET DISCONNECT
+        // ==========================================
+
+        socket.on("disconnect", function () {
+
+            console.log(
+                "Socket disconnected"
+            );
+
+        });
+
+
+        // ==========================================
+        // MESSAGE SYSTEM
+        // ==========================================
+
+        const messageForm =
+            document.getElementById("messageForm");
+
+        const messageInput =
+            document.getElementById("messageInput");
+
+        const chatBox =
+            document.getElementById("chatBox");
+
+
+        messageForm.addEventListener(
+            "submit",
+            function (event) {
+
+                event.preventDefault();
+
+                const message =
+                    messageInput.value.trim();
+
+                if (message === "") {
+                    return;
+                }
+
+                socket.emit(
+                    "send_message",
+                    {
+                        other_user: otherUser,
+                        message: message
+                    }
+                );
+
+                messageInput.value = "";
+
+                messageInput.focus();
+
+            }
+        );
+
+
+        // ==========================================
+        // RECEIVE MESSAGE
+        // ==========================================
+
+        socket.on(
+            "receive_message",
+            function (data) {
+
+                console.log(
+                    "Message received:",
+                    data
+                );
+
+
+                const noMessages =
+                    document.getElementById(
+                        "noMessages"
+                    );
+
+
+                if (noMessages) {
+                    noMessages.remove();
+                }
+
+
+                const messageWrapper =
+                    document.createElement("div");
+
+
+                if (
+                    data.sender === currentUser
+                ) {
+
+                    messageWrapper.className =
+                        "message-wrapper sent";
+
+                } else {
+
+                    messageWrapper.className =
+                        "message-wrapper received";
+
+                }
+
+
+                const messageElement =
+                    document.createElement("div");
+
+
+                messageElement.className =
+                    "message";
+
+
+                const sender =
+                    document.createElement("strong");
+
+
+                const messageText =
+                    document.createElement("span");
+
+
+                if (
+                    data.sender === currentUser
+                ) {
+
+                    sender.innerText =
+                        "You";
+
+                } else {
+
+                    sender.innerText =
+                        data.sender;
+
+                }
+
+
+                messageText.innerText =
+                    data.message;
+
+
+                messageElement.appendChild(
+                    sender
+                );
+
+
+                messageElement.appendChild(
+                    messageText
+                );
+
+
+                messageWrapper.appendChild(
+                    messageElement
+                );
+
+
+                chatBox.appendChild(
+                    messageWrapper
+                );
+
+
+                chatBox.scrollTop =
+                    chatBox.scrollHeight;
+
+            }
+        );
+
+
+        // ==========================================
+        // CREATE PEER CONNECTION
+        // ==========================================
+
+        function createPeerConnection() {
+
+            peerConnection =
+                new RTCPeerConnection({
+
+                    iceServers: [
+
+                        {
+                            urls:
+                            "stun:stun.l.google.com:19302"
+                        }
+
+                    ]
+
+                });
+
+
+            // ICE CANDIDATE
+
+            peerConnection.onicecandidate =
+                function (event) {
+
+                    if (event.candidate) {
+
+                        socket.emit(
+                            "ice_candidate",
+                            {
+
+                                other_user:
+                                otherUser,
+
+                                candidate:
+                                event.candidate
+
+                            }
+                        );
+
+                    }
+
+                };
+
+
+            // REMOTE AUDIO
+
+            peerConnection.ontrack =
+                function (event) {
+
+                    const remoteAudio =
+                        document.getElementById(
+                            "remoteAudio"
+                        );
+
+
+                    remoteAudio.srcObject =
+                        event.streams[0];
+
+                };
+
+
+            // CONNECTION STATUS
+
+            peerConnection.onconnectionstatechange =
+                function () {
+
+                    if (!peerConnection) {
+                        return;
+                    }
+
+
+                    const state =
+                        peerConnection.connectionState;
+
+
+                    console.log(
+                        "Connection state:",
+                        state
+                    );
+
+
+                    if (state === "connected") {
+
+                        document.getElementById(
+                            "callStatus"
+                        ).innerText =
+                            "Connected";
+
+                    }
+
+
+                    if (
+                        state === "disconnected" ||
+                        state === "failed" ||
+                        state === "closed"
+                    ) {
+
+                        document.getElementById(
+                            "callStatus"
+                        ).innerText =
+                            "Call ended";
+
+                    }
+
+                };
+
+        }
+
+
+        // ==========================================
+        // START CALL
+        // ==========================================
+
+        async function startCall() {
+
+            try {
+
+                document.getElementById(
+                    "callStatus"
+                ).innerText =
+                    "Calling " +
+                    otherUser +
+                    "...";
+
+
+                pendingCandidates = [];
+
+
+                localStream =
+                    await navigator.mediaDevices
+                    .getUserMedia({
+                        audio: true
+                    });
+
+
+                createPeerConnection();
+
+
+                localStream
+                    .getTracks()
+                    .forEach(function (track) {
+
+                        peerConnection.addTrack(
+                            track,
+                            localStream
+                        );
+
+                    });
+
+
+                const offer =
+                    await peerConnection
+                    .createOffer();
+
+
+                await peerConnection
+                    .setLocalDescription(
+                        offer
+                    );
+
+
+                socket.emit(
+                    "call_offer",
+                    {
+
+                        other_user:
+                        otherUser,
+
+                        offer:
+                        offer
+
+                    }
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Call error:",
+                    error
+                );
+
+
+                document.getElementById(
+                    "callStatus"
+                ).innerText =
+                    "Microphone permission denied.";
+
+            }
+
+        }
+
+
+        // ==========================================
+        // RECEIVE CALL
+        // ==========================================
+
+        socket.on(
+            "call_offer",
+            async function (data) {
+
+                try {
+
+                    const accept =
+                        confirm(
+                            data.sender +
+                            " is calling you. Accept?"
+                        );
+
+
+                    if (!accept) {
+                        return;
+                    }
+
+
+                    document.getElementById(
+                        "callStatus"
+                    ).innerText =
+                        "Connecting...";
+
+
+                    pendingCandidates = [];
+
+
+                    localStream =
+                        await navigator.mediaDevices
+                        .getUserMedia({
+                            audio: true
+                        });
+
+
+                    createPeerConnection();
+
+
+                    localStream
+                        .getTracks()
+                        .forEach(function (track) {
+
+                            peerConnection.addTrack(
+                                track,
+                                localStream
+                            );
+
+                        });
+
+
+                    await peerConnection
+                        .setRemoteDescription(
+                            new RTCSessionDescription(
+                                data.offer
+                            )
+                        );
+
+
+                    const answer =
+                        await peerConnection
+                        .createAnswer();
+
+
+                    await peerConnection
+                    .setLocalDescription(
+                        answer
+                    );
+
+
+                    socket.emit(
+                        "call_answer",
+                        {
+
+                            other_user:
+                            data.sender,
+
+                            answer:
+                            answer
+
+                        }
+                    );
+
+
+                    document.getElementById(
+                        "callStatus"
+                    ).innerText =
+                        "Connecting...";
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Answer error:",
+                        error
+                    );
+
+
+                    document.getElementById(
+                        "callStatus"
+                    ).innerText =
+                        "Could not connect call.";
+
+                }
+
+            }
+        );
+
+
+        // ==========================================
+        // RECEIVE ANSWER
+        // ==========================================
+
+        socket.on(
+            "call_answer",
+            async function (data) {
+
+                try {
+
+                    if (!peerConnection) {
+                        return;
+                    }
+
+
+                    await peerConnection
+                        .setRemoteDescription(
+                            new RTCSessionDescription(
+                                data.answer
+                            )
+                        );
+
+
+                    for (
+                        const candidate
+                        of pendingCandidates
+                    ) {
+
+                        try {
+
+                            await peerConnection
+                                .addIceCandidate(
+                                    new RTCIceCandidate(
+                                        candidate
+                                    )
+                                );
+
+                        }
+
+                        catch (error) {
+
+                            console.error(
+                                "ICE error:",
+                                error
+                            );
+
+                        }
+
+                    }
+
+
+                    pendingCandidates = [];
+
+
+                    document.getElementById(
+                        "callStatus"
+                    ).innerText =
+                        "Connected";
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Answer connection error:",
+                        error
+                    );
+
+                }
+
+            }
+        );
+
+
+        // ==========================================
+        // RECEIVE ICE CANDIDATE
+        // ==========================================
+
+        socket.on(
+            "ice_candidate",
+            async function (data) {
+
+                if (!peerConnection) {
+                    return;
+                }
+
+
+                if (
+                    peerConnection.remoteDescription
+                ) {
+
+                    try {
+
+                        await peerConnection
+                            .addIceCandidate(
+                                new RTCIceCandidate(
+                                    data.candidate
+                                )
+                            );
+
+                    }
+
+                    catch (error) {
+
+                        console.error(
+                            "ICE candidate error:",
+                            error
+                        );
+
+                    }
+
+                } else {
+
+                    pendingCandidates.push(
+                        data.candidate
+                    );
+
+                }
+
+            }
+        );
+
+
+        // ==========================================
+        // END CALL
+        // ==========================================
+
+        function endCall() {
+
+            if (localStream) {
+
+                localStream
+                    .getTracks()
+                    .forEach(function (track) {
+
+                        track.stop();
+
+                    });
+
+                localStream = null;
+
+            }
+
+
+            if (peerConnection) {
+
+                peerConnection.close();
+
+                peerConnection = null;
+
+            }
+
+
+            pendingCandidates = [];
+
+
+            document.getElementById(
+                "callStatus"
+            ).innerText =
+                "Call ended";
+
+
+            socket.emit(
+                "end_call",
+                {
+                    other_user: otherUser
+                }
+            );
+
+        }
+
+
+        // ==========================================
+        // OTHER USER ENDED CALL
+        // ==========================================
+
+        socket.on(
+            "end_call",
+            function () {
+
+                if (localStream) {
+
+                    localStream
+                        .getTracks()
+                        .forEach(function (track) {
+
+                            track.stop();
+
+                        });
+
+                    localStream = null;
+
+                }
+
+
+                if (peerConnection) {
+
+                    peerConnection.close();
+
+                    peerConnection = null;
+
+                }
+
+
+                pendingCandidates = [];
+
+
+                document.getElementById(
+                    "callStatus"
+                ).innerText =
+                    "Call ended";
+
+            }
+        );
+
+    </script>
+
+</body>
+
+</html>

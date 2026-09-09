@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>For Her</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>For Her</h1>
+
+        <h2>Welcome, {{ personal_id }}</h2>
+
+        <form action="/search" method="GET">
+
+            <input
+                type="text"
+                name="personal_id"
+                placeholder="Search Personal ID"
+                required
+            >
+
+            <button type="submit">
+                Search
+            </button>
+
+        </form>
+
+
+        {% if searched_id %}
+
+            {% if search_result %}
+
+                <h3>User Found</h3>
+
+                <p>{{ search_result[0] }}</p>
+
+                <form
+                    action="/chat/{{ search_result[0] }}"
+                    method="GET">
+
+                    <button type="submit">
+                        💬 Message
+                    </button>
+
+                </form>
+
+                <button type="button">
+                    📞 Call
+                </button>
+
+            {% else %}
+
+                <p>
+                    User "{{ searched_id }}" was not found.
+                </p>
+
+            {% endif %}
+
+        {% endif %}
+
+    </div>
+
+</body>
+
+</html>
