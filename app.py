@@ -363,13 +363,13 @@ def handle_end_call(data):
 # START SERVER
 # ==========================
 
-if __name__ == "__main__":
+# Create the database tables when the app starts
+init_db()
 
-    init_db()
+
+if __name__ == "__main__":
 
     socketio.run(
         app,
-        host="0.0.0.0",
-        port=5000,
         debug=True
     )
